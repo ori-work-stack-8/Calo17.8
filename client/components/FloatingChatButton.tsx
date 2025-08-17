@@ -23,6 +23,7 @@ import {
 import { MessageCircle, Minus, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AIChatScreen from "../app/(tabs)/ai-chat";
+import { useTheme } from "@/src/context/ThemeContext";
 
 // Enhanced interface
 interface AIChatScreenProps {
@@ -49,22 +50,9 @@ const ANIMATIONS = {
   },
 } as const;
 
-// Updated colors with emerald
-const COLORS = {
-  glass: "rgba(16, 185, 129, 0.3)", // emerald with transparency
-  glassStroke: "rgba(255, 255, 255, 0.3)",
-  backdrop: "rgba(6, 78, 59, 0.1)", // dark emerald
-  emerald: "#10b981", // emerald-500
-  white: "#ffffff",
-  gray50: "#f9fafb",
-  gray100: "#f3f4f6",
-  gray200: "#e5e7eb",
-  gray600: "#4b5563",
-  gray900: "#111827",
-} as const;
-
 export default function FloatingChatButton() {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
 
   // State
   const [showChat, setShowChat] = useState(false);
@@ -197,11 +185,14 @@ export default function FloatingChatButton() {
     setShowChat(false);
   }, []);
 
+  // Create dynamic styles
+  const dynamicStyles = useMemo(() => createFloatingChatStyles(colors, isDark), [colors, isDark]);
+
   return (
     <>
       <Animated.View
         style={[
-          styles.container,
+          dynamicStyles.container,
           {
             transform: [
               { translateX: pan.x },
@@ -214,12 +205,12 @@ export default function FloatingChatButton() {
         {...panResponder.panHandlers}
       >
         <TouchableOpacity
-          style={styles.button}
+          style={dynamicStyles.button}
           onPress={handlePress}
           activeOpacity={0.8}
         >
-          <View style={styles.glassEffect} />
-          <MessageCircle size={26} color={COLORS.white} strokeWidth={2} />
+          <View style={[dynamicStyles.glassEffect, { backgroundColor: colors.emerald500 + "80" }]} />
+          <MessageCircle size={26} color="#ffffff" strokeWidth={2} />
         </TouchableOpacity>
       </Animated.View>
 
@@ -230,36 +221,15 @@ export default function FloatingChatButton() {
         onRequestClose={handleClose}
         statusBarTranslucent={Platform.OS === "android"}
       >
-        <View style={styles.modalContainer}>
+        <View style={[dynamicStyles.modalContainer, { backgroundColor: colors.background }]}>
           <StatusBar
-            barStyle="dark-content"
-            backgroundColor={COLORS.white}
+            barStyle={isDark ? "light-content" : "dark-content"}
+            backgroundColor={colors.background}
             translucent={Platform.OS === "android"}
           />
 
-          {/* Clean header */}
-          <SafeAreaView style={styles.headerSafeArea}>
-            <View style={styles.header}>
-              <TouchableOpacity
-                onPress={handleMinimize}
-                style={styles.headerButton}
-              >
-                <Minus size={20} color={COLORS.gray600} strokeWidth={2} />
-              </TouchableOpacity>
-
-              <View style={styles.headerTitle}>
-                <MessageCircle size={20} color={COLORS.emerald} strokeWidth={2} />
-                <Text style={styles.headerTitleText}>AI Chat</Text>
-              </View>
-
-              <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-                <X size={20} color={COLORS.gray600} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-          </SafeAreaView>
-
           {/* Chat content - Full screen */}
-          <View style={styles.chatContent}>
+          <View style={dynamicStyles.chatContent}>
             <AIChatScreen onClose={handleClose} onMinimize={handleMinimize} />
           </View>
         </View>
@@ -268,7 +238,8 @@ export default function FloatingChatButton() {
   );
 }
 
-const styles = StyleSheet.create({
+// Create dynamic styles function
+const createFloatingChatStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     position: "absolute",
     zIndex: 1000,
@@ -286,10 +257,9 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: COLORS.glass,
     borderWidth: 1,
-    borderColor: COLORS.glassStroke,
-    shadowColor: COLORS.backdrop,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    shadowColor: colors.emerald500,
     shadowOffset: {
       width: 0,
       height: 8,
@@ -300,39 +270,6 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: COLORS.gray50,
-  },
-  headerSafeArea: {
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray200,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: COLORS.white,
-  },
-  headerButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: COLORS.gray100,
-    minWidth: 36,
-    alignItems: "center",
-  },
-  headerTitle: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  headerTitleText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.gray900,
   },
   chatContent: {
     flex: 1,

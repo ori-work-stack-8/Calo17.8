@@ -27,12 +27,15 @@ import {
   Trash2,
   RotateCcw,
   Info,
+  X,
+  Minus,
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useLanguage } from "@/src/i18n/context/LanguageContext";
 import { chatAPI, questionnaireAPI } from "@/src/services/api";
 import i18n from "@/src/i18n";
 import LoadingScreen from "@/components/LoadingScreen";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const { width } = Dimensions.get("window");
 
@@ -53,9 +56,15 @@ interface UserProfile {
   goals: string[];
 }
 
-export default function AIChatScreen() {
+interface AIChatScreenProps {
+  onClose?: () => void;
+  onMinimize?: () => void;
+}
+
+export default function AIChatScreen({ onClose, onMinimize }: AIChatScreenProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { colors, isDark } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -68,6 +77,10 @@ export default function AIChatScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const isRTL = i18n.language === "he";
+
+  // Create dynamic styles based on theme
+  const dynamicStyles = createDynamicStyles(colors, isDark);
+
   const texts = {
     title: t("ai_chat.title"),
     subtitle: t("ai_chat.subtitle"),
@@ -105,7 +118,9 @@ export default function AIChatScreen() {
 
   // Auto-scroll when messages change
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   }, [messages]);
 
   const loadUserProfile = async () => {
@@ -297,6 +312,11 @@ export default function AIChatScreen() {
     setInputText("");
     setIsTyping(true);
 
+    // Auto-scroll after adding user message
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
     try {
       console.log("💬 Sending message to AI:", currentMessage);
 
@@ -371,6 +391,10 @@ export default function AIChatScreen() {
       Alert.alert(texts.error, texts.networkError);
     } finally {
       setIsTyping(false);
+      // Auto-scroll after AI response
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 200);
     }
   };
 
@@ -495,61 +519,82 @@ export default function AIChatScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[dynamicStyles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>{texts.title}</Text>
-            <Text style={styles.subtitle}>{texts.subtitle}</Text>
+      <View style={[dynamicStyles.header, { backgroundColor: colors.background }]}>
+        <View style={dynamicStyles.headerLeft}>
+          <View style={dynamicStyles.titleContainer}>
+            <Text style={[dynamicStyles.title, { color: colors.text }]}>{texts.title}</Text>
+            <Text style={[dynamicStyles.subtitle, { color: colors.textSecondary }]}>{texts.subtitle}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.headerButton} onPress={clearChat}>
-          <Trash2 size={22} color="#E74C3C" />
-        </TouchableOpacity>
+        <View style={dynamicStyles.headerActions}>
+          {onMinimize && (
+            <TouchableOpacity 
+              style={[dynamicStyles.headerButton, { backgroundColor: colors.surface }]} 
+              onPress={onMinimize}
+            >
+              <Minus size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={[dynamicStyles.headerButton, { backgroundColor: colors.surface }]} 
+            onPress={clearChat}
+          >
+            <Trash2 size={20} color="#E74C3C" />
+          </TouchableOpacity>
+          {onClose && (
+            <TouchableOpacity 
+              style={[dynamicStyles.headerButton, { backgroundColor: colors.surface }]} 
+              onPress={onClose}
+            >
+              <X size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Messages */}
       <ScrollView
         ref={scrollViewRef}
-        style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesContent}
+        style={[dynamicStyles.messagesContainer, { backgroundColor: colors.background }]}
+        contentContainerStyle={dynamicStyles.messagesContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Card - Only show if user has profile data */}
         {(userProfile.allergies.length > 0 ||
           userProfile.medicalConditions.length > 0) && (
-          <View style={styles.profileCard}>
-            <View style={styles.profileHeader}>
+          <View style={[dynamicStyles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={dynamicStyles.profileHeader}>
               <Shield size={18} color="#16A085" />
-              <Text style={styles.profileTitle}>
+              <Text style={[dynamicStyles.profileTitle, { color: colors.text }]}>
                 {language === "he" ? "פרופיל בטיחות" : "Safety Profile"}
               </Text>
             </View>
-            <View style={styles.profileContent}>
+            <View style={dynamicStyles.profileContent}>
               {userProfile.allergies.length > 0 && (
-                <View style={styles.profileSection}>
-                  <Text style={styles.profileLabel}>
+                <View style={dynamicStyles.profileSection}>
+                  <Text style={[dynamicStyles.profileLabel, { color: colors.textSecondary }]}>
                     {language === "he" ? "אלרגיות:" : "Allergies:"}
                   </Text>
-                  <View style={styles.tagContainer}>
+                  <View style={dynamicStyles.tagContainer}>
                     {userProfile.allergies.map((allergy, index) => (
-                      <View key={index} style={styles.allergyTag}>
-                        <Text style={styles.allergyTagText}>{allergy}</Text>
+                      <View key={index} style={dynamicStyles.allergyTag}>
+                        <Text style={dynamicStyles.allergyTagText}>{allergy}</Text>
                       </View>
                     ))}
                   </View>
                 </View>
               )}
               {userProfile.medicalConditions.length > 0 && (
-                <View style={styles.profileSection}>
-                  <Text style={styles.profileLabel}>
+                <View style={dynamicStyles.profileSection}>
+                  <Text style={[dynamicStyles.profileLabel, { color: colors.textSecondary }]}>
                     {language === "he" ? "מצבים רפואיים:" : "Medical:"}
                   </Text>
-                  <View style={styles.tagContainer}>
+                  <View style={dynamicStyles.tagContainer}>
                     {userProfile.medicalConditions.map((condition, index) => (
-                      <View key={index} style={styles.medicalTag}>
-                        <Text style={styles.medicalTagText}>{condition}</Text>
+                      <View key={index} style={dynamicStyles.medicalTag}>
+                        <Text style={dynamicStyles.medicalTagText}>{condition}</Text>
                       </View>
                     ))}
                   </View>
@@ -561,14 +606,14 @@ export default function AIChatScreen() {
         {messages.map(renderMessage)}
 
         {isTyping && (
-          <View style={styles.typingIndicator}>
-            <View style={styles.typingRow}>
-              <View style={styles.botIconContainer}>
+          <View style={dynamicStyles.typingIndicator}>
+            <View style={dynamicStyles.typingRow}>
+              <View style={dynamicStyles.botIconContainer}>
                 <Bot size={20} color="#16A085" />
               </View>
-              <View style={styles.typingBubble}>
+              <View style={[dynamicStyles.typingBubble, { backgroundColor: colors.card }]}>
                 <ActivityIndicator size="small" color="#16A085" />
-                <Text style={styles.typingText}>{texts.typing}</Text>
+                <Text style={[dynamicStyles.typingText, { color: colors.textSecondary }]}>{texts.typing}</Text>
               </View>
             </View>
           </View>
@@ -578,22 +623,34 @@ export default function AIChatScreen() {
       {/* Input Area */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.inputArea}
+        style={[dynamicStyles.inputArea, { backgroundColor: colors.background }]}
       >
-        <View style={styles.inputContainer}>
+        <View style={[dynamicStyles.inputContainer, { backgroundColor: colors.surface }]}>
           <TextInput
-            style={styles.textInput}
+            style={[
+              dynamicStyles.textInput,
+              { 
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                color: colors.text
+              }
+            ]}
             value={inputText}
             onChangeText={setInputText}
             placeholder={texts.typePlaceholder}
-            placeholderTextColor="#95A5A6"
+            placeholderTextColor={colors.textSecondary}
             multiline
             maxLength={500}
             textAlign={language === "he" ? "right" : "left"}
+            onSubmitEditing={() => {
+              if (inputText.trim() && !isTyping) {
+                sendMessage();
+              }
+            }}
           />
           <TouchableOpacity
             style={[
-              styles.sendButton,
+              dynamicStyles.sendButton,
               (!inputText.trim() || isTyping) && styles.sendButtonDisabled,
             ]}
             onPress={sendMessage}
@@ -605,7 +662,7 @@ export default function AIChatScreen() {
                   ? ["#BDC3C7", "#95A5A6"]
                   : ["#16A085", "#1ABC9C"]
               }
-              style={styles.sendGradient}
+              style={dynamicStyles.sendGradient}
             >
               <Send size={20} color="#FFFFFF" />
             </LinearGradient>
@@ -616,21 +673,10 @@ export default function AIChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+// Create dynamic styles function
+const createDynamicStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 16,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: "#7F8C8D",
-    textAlign: "center",
   },
   header: {
     flexDirection: "row",
@@ -638,9 +684,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
     paddingVertical: 20,
-    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#E9ECEF",
+    borderBottomColor: colors.border,
   },
   headerLeft: {
     flex: 1,
@@ -651,28 +696,29 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#2C3E50",
   },
   subtitle: {
     fontSize: 14,
-    color: "#7F8C8D",
     marginTop: 4,
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
   },
   headerButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F8F9FA",
     justifyContent: "center",
     alignItems: "center",
   },
   profileCard: {
-    backgroundColor: "#FFFFFF",
     marginHorizontal: 20,
     marginTop: 10,
     marginBottom: 15,
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -687,7 +733,6 @@ const styles = StyleSheet.create({
   profileTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#2C3E50",
     marginLeft: 8,
   },
   profileContent: {
@@ -701,7 +746,6 @@ const styles = StyleSheet.create({
   profileLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#7F8C8D",
     marginRight: 12,
     minWidth: 70,
   },
@@ -782,7 +826,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -794,7 +838,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
   },
   botBubble: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     alignSelf: "flex-start",
   },
   warningBubble: {
@@ -819,7 +863,7 @@ const styles = StyleSheet.create({
   messageText: {
     fontSize: 16,
     lineHeight: 20,
-    color: "#2C3E50",
+    color: colors.text,
   },
   userText: {
     color: "#FFFFFF",
@@ -839,7 +883,7 @@ const styles = StyleSheet.create({
   suggestionsLabel: {
     fontSize: 12,
     fontWeight: "500",
-    color: "#7F8C8D",
+    color: colors.textSecondary,
     marginBottom: 8,
   },
   suggestionsGrid: {
@@ -871,7 +915,6 @@ const styles = StyleSheet.create({
   typingBubble: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 16,
@@ -883,13 +926,11 @@ const styles = StyleSheet.create({
   },
   typingText: {
     fontSize: 14,
-    color: "#7F8C8D",
     marginLeft: 8,
   },
   inputArea: {
-    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: "#E9ECEF",
+    borderTopColor: colors.border,
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
@@ -897,20 +938,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 12,
-    backgroundColor: "#F8F9FA",
     borderRadius: 24,
     paddingHorizontal: 4,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: "#E9ECEF",
+    borderColor: colors.border,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
-    color: "#2C3E50",
     paddingHorizontal: 16,
     paddingVertical: 12,
     maxHeight: 120,
+    borderWidth: 1,
+    borderRadius: 20,
   },
   sendButton: {
     borderRadius: 20,
