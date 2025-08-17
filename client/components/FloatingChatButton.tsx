@@ -226,11 +226,11 @@ export default function FloatingChatButton() {
       <Modal
         visible={showChat}
         animationType="slide"
-        presentationStyle="pageSheet"
+        presentationStyle="fullScreen"
         onRequestClose={handleClose}
         statusBarTranslucent={Platform.OS === "android"}
       >
-        <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalContainer}>
           <StatusBar
             barStyle="dark-content"
             backgroundColor={COLORS.white}
@@ -238,29 +238,31 @@ export default function FloatingChatButton() {
           />
 
           {/* Clean header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={handleMinimize}
-              style={styles.headerButton}
-            >
-              <Minus size={20} color={COLORS.gray600} strokeWidth={2} />
-            </TouchableOpacity>
+          <SafeAreaView style={styles.headerSafeArea}>
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={handleMinimize}
+                style={styles.headerButton}
+              >
+                <Minus size={20} color={COLORS.gray600} strokeWidth={2} />
+              </TouchableOpacity>
 
-            <View style={styles.headerTitle}>
-              <MessageCircle size={20} color={COLORS.emerald} strokeWidth={2} />
-              <Text style={styles.headerTitleText}>Chat</Text>
+              <View style={styles.headerTitle}>
+                <MessageCircle size={20} color={COLORS.emerald} strokeWidth={2} />
+                <Text style={styles.headerTitleText}>AI Chat</Text>
+              </View>
+
+              <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+                <X size={20} color={COLORS.gray600} strokeWidth={2} />
+              </TouchableOpacity>
             </View>
+          </SafeAreaView>
 
-            <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-              <X size={20} color={COLORS.gray600} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Chat content */}
+          {/* Chat content - Full screen */}
           <View style={styles.chatContent}>
             <AIChatScreen onClose={handleClose} onMinimize={handleMinimize} />
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
     </>
   );
@@ -300,6 +302,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.gray50,
   },
+  headerSafeArea: {
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray200,
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -307,8 +314,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray200,
   },
   headerButton: {
     padding: 8,

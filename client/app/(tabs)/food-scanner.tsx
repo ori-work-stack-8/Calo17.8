@@ -9,282 +9,185 @@ import {
   ScrollView,
   TextInput,
   Modal,
-  Dimensions,
   Animated,
+  Dimensions,
   Platform,
-  Image,
+  Vibration,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { Camera, CameraType, CameraView } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import { Camera } from "expo-camera";
 import {
-  QrCode,
   Camera as CameraIcon,
-  Sparkles,
+  Scan,
   Plus,
-  Minus,
-  Check,
   X,
+  Check,
   AlertTriangle,
-  Shield,
-  Heart,
-  Leaf,
-  Zap,
-  Apple,
-  Clock,
-  BarChart3,
   Info,
-  Star,
+  Sparkles,
+  ShoppingCart,
+  Clock,
+  Zap,
+  Target,
+  ChefHat,
+  Image as ImageIcon,
+  Search,
   Trash2,
-  History,
-  Wheat,
-  Droplet,
-  CircleDot,
+  Edit3,
+  Save,
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useLanguage } from "@/src/i18n/context/LanguageContext";
+import { useTheme } from "@/src/context/ThemeContext";
 import { api } from "@/src/services/api";
-import { Ionicons } from "@expo/vector-icons";
 import LoadingScreen from "@/components/LoadingScreen";
+import { router } from "expo-router";
 
-const { width, height } = Dimensions.get("window");
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
-interface ProductData {
-  barcode?: string;
+interface ScannedProduct {
+  product: {
+    name: string;
+    brand?: string;
+    category: string;
+    nutrition_per_100g: {
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      fiber?: number;
+      sugar?: number;
+      sodium?: number;
+    };
+    ingredients: string[];
+    allergens: string[];
+    labels: string[];
+    health_score?: number;
+    barcode?: string;
+  };
+  user_analysis: {
+    compatibility_score: number;
+    daily_contribution: {
+      calories_percent: number;
+      protein_percent: number;
+      carbs_percent: number;
+      fat_percent: number;
+    };
+    alerts: string[];
+    recommendations: string[];
+    health_assessment: string;
+  };
+}
+
+interface Ingredient {
   name: string;
-  brand?: string;
-  category: string;
-  nutrition_per_100g: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    fiber?: number;
-    sugar?: number;
-    sodium?: number;
-  };
-  ingredients: string[];
-  allergens: string[];
-  labels: string[];
-  health_score?: number;
-  image_url?: string;
-}
-
-interface UserAnalysis {
-  compatibility_score: number;
-  daily_contribution: {
-    calories_percent: number;
-    protein_percent: number;
-    carbs_percent: number;
-    fat_percent: number;
-  };
-  alerts: string[];
-  recommendations: string[];
-  health_assessment: string;
-}
-
-interface ScanResult {
-  product: ProductData;
-  user_analysis: UserAnalysis;
+  quantity: number;
+  unit: string;
+  category?: string;
 }
 
 export default function FoodScannerScreen() {
   const { t } = useTranslation();
-  const { language } = useLanguage();
+  const { isRTL, language } = useLanguage();
+  const { colors, isDark } = useTheme();
 
-  const isRTL = language === "he";
-
-  // Camera and scanning states
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  // State management
   const [scanMode, setScanMode] = useState<"barcode" | "image">("barcode");
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Product and analysis states
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [productData, setProductData] = useState<ProductData | null>(null);
-  const [userAnalysis, setUserAnalysis] = useState<UserAnalysis | null>(null);
-  const [showResults, setShowResults] = useState(false);
-
-  // UI states
-  const [barcodeInput, setBarcodeInput] = useState("");
-  const [quantity, setQuantity] = useState(100);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scannedProduct, setScannedProduct] = useState<ScannedProduct | null>(null);
   const [scanHistory, setScanHistory] = useState<any[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showIngredientsModal, setShowIngredientsModal] = useState(false);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [newIngredient, setNewIngredient] = useState({
+    name: "",
+    quantity: "",
+    unit: "g",
+    category: "",
+  });
+  const [quantity, setQuantity] = useState("100");
+  const [mealTiming, setMealTiming] = useState("SNACK");
   const [isAddingToMeal, setIsAddingToMeal] = useState(false);
-  const [showAddToMeal, setShowAddToMeal] = useState(false);
-  const [mealRating, setMealRating] = useState(0);
-  const [hasRated, setHasRated] = useState(false);
-  const [scannedFood, setScannedFood] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [showMealSelector, setShowMealSelector] = useState(false);
-  const [selectedMealType, setSelectedMealType] = useState("breakfast");
-  const [scannedHistory, setScannedHistory] = useState<any[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Animation values
-  const slideAnimation = useRef(new Animated.Value(0)).current;
-  const fadeAnimation = useRef(new Animated.Value(0)).current;
-  const scaleAnimation = useRef(new Animated.Value(1)).current;
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const [slideAnim] = useState(new Animated.Value(50));
+  const [scaleAnim] = useState(new Animated.Value(0.8));
 
-  const texts = {
-    title: language === "he" ? "סורק מזון חכם" : "Smart Food Scanner",
-    subtitle:
-      language === "he"
-        ? "סרוק ברקוד או תמונה לניתוח תזונתי מיידי"
-        : "Scan barcode or image for instant nutritional analysis",
-    scanBarcode: language === "he" ? "סרוק ברקוד" : "Scan Barcode",
-    scanImage: language === "he" ? "סרוק תמונה" : "Scan Image",
-    manualEntry: language === "he" ? "הזנה ידנית" : "Manual Entry",
-    enterBarcode: language === "he" ? "הכנס ברקוד" : "Enter Barcode",
-    scan: language === "he" ? "סרוק" : "Scan",
-    quantity: language === "he" ? "כמות (גרם)" : "Quantity (grams)",
-    addToMeal: language === "he" ? "הוסף לארוחה" : "Add to Meal",
-    nutritionPer100g:
-      language === "he" ? "ערכים תזונתיים ל-100 גרם" : "Nutrition per 100g",
-    compatibility:
-      language === "he" ? "תאימות אישית" : "Personal Compatibility",
-    dailyContribution: language === "he" ? "תרומה יומית" : "Daily Contribution",
-    alerts: language === "he" ? "התראות" : "Alerts",
-    recommendations: language === "he" ? "המלצות" : "Recommendations",
-    healthAssessment: language === "he" ? "הערכה תזונתית" : "Health Assessment",
-    calories: language === "he" ? "קלוריות" : "Calories",
-    protein: language === "he" ? "חלבון" : "Protein",
-    carbs: language === "he" ? "פחמימות" : "Carbs",
-    fat: language === "he" ? "שומן" : "Fat",
-    fiber: language === "he" ? "סיבים" : "Fiber",
-    sugar: language === "he" ? "סוכר" : "Sugar",
-    sodium: language === "he" ? "נתרן" : "Sodium",
-    ingredients: language === "he" ? "רכיבים" : "Ingredients",
-    allergens: language === "he" ? "אלרגנים" : "Allergens",
-    labels: language === "he" ? "תוויות" : "Labels",
-    healthScore: language === "he" ? "ניקוד בריאות" : "Health Score",
-    scanning: language === "he" ? "סורק..." : "Scanning...",
-    scanSuccess: language === "he" ? "סריקה הושלמה!" : "Scan Complete!",
-    scanError: language === "he" ? "שגיאה בסריקה" : "Scan Error",
-    noResults: language === "he" ? "לא נמצאו תוצאות" : "No Results Found",
-    history: language === "he" ? "היסטוריה" : "History",
-    recentScans: language === "he" ? "סריקות אחרונות" : "Recent Scans",
-    clear: language === "he" ? "נקה" : "Clear",
-    close: language === "he" ? "סגור" : "Close",
-    added: language === "he" ? "נוסף!" : "Added!",
-    addingToMeal: language === "he" ? "מוסיף לארוחה..." : "Adding to meal...",
-    g: language === "he" ? "גר'" : "g",
-    mg: language === "he" ? 'מ"ג' : "mg",
-    kcal: language === "he" ? 'קק"ל' : "kcal",
-    percent: "%",
-    barcode: isRTL ? "ברקוד" : "Barcode",
-  };
+  // Refs
+  const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
-    getCameraPermissions();
-    loadScanHistory();
-
-    // Animate screen entrance
+    // Start animations
     Animated.parallel([
-      Animated.timing(slideAnimation, {
+      Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 800,
         useNativeDriver: true,
       }),
-      Animated.timing(fadeAnimation, {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
         toValue: 1,
-        duration: 1000,
         useNativeDriver: true,
       }),
     ]).start();
+
+    loadScanHistory();
   }, []);
 
-  const getCameraPermissions = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    setHasPermission(status === "granted");
-  };
-
   const loadScanHistory = async () => {
-    setIsLoadingHistory(true);
     try {
       const response = await api.get("/food-scanner/history");
       if (response.data.success) {
-        setScanHistory(response.data.data);
-        setScannedHistory(response.data.data);
+        setScanHistory(response.data.data || []);
       }
     } catch (error) {
-      console.error("Error loading scan history:", error);
-    } finally {
-      setIsLoadingHistory(false);
+      console.error("Failed to load scan history:", error);
     }
   };
 
-  const handleBarcodeSearch = async () => {
-    if (!barcodeInput.trim()) {
-      Alert.alert(
-        texts.scanError,
-        language === "he" ? "אנא הכנס ברקוד" : "Please enter a barcode"
-      );
-      return;
-    }
+  const handleBarcodeScan = async (barcode: string) => {
+    if (isScanning) return;
 
-    setIsLoading(true);
     try {
-      const response = await api.post("/food-scanner/barcode", {
-        barcode: barcodeInput.trim(),
-      });
+      setIsScanning(true);
+      console.log("🔍 Scanning barcode:", barcode);
+
+      const response = await api.post("/food-scanner/barcode", { barcode });
 
       if (response.data.success) {
-        setScanResult(response.data.data);
-        setProductData(response.data.data.product);
-        setUserAnalysis(response.data.data.user_analysis);
-        animateResultAppearance();
-        setShowResults(true);
-      } else {
-        Alert.alert(texts.scanError, response.data.error || texts.noResults);
-      }
-    } catch (error) {
-      console.error("Barcode scan error:", error);
-      Alert.alert(texts.scanError, texts.noResults);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleBarcodeScan = async (scanningResult: any) => {
-    if (isLoading) return;
-
-    setIsLoading(true);
-    setIsScanning(false);
-
-    try {
-      const response = await api.post("/food-scanner/barcode", {
-        barcode: scanningResult.data,
-      });
-
-      if (response.data.success && response.data.data) {
-        setScanResult(response.data.data);
-        setProductData(response.data.data.product);
-        setUserAnalysis(response.data.data.user_analysis);
-        animateResultAppearance();
-        setShowResults(true);
+        setScannedProduct(response.data.data);
+        if (Platform.OS === "ios") {
+          Vibration.vibrate([100]);
+        }
       } else {
         Alert.alert(
-          texts.scanError,
-          language === "he" ? "מוצר לא נמצא במאגר" : "Product not found"
+          t("food_scanner.scan_failed"),
+          t("food_scanner.product_not_found_message")
         );
       }
     } catch (error) {
       console.error("Barcode scan error:", error);
-      Alert.alert(texts.scanError, texts.noResults);
+      Alert.alert(
+        t("food_scanner.scan_failed"),
+        t("food_scanner.scan_failed_message")
+      );
     } finally {
-      setIsLoading(false);
+      setIsScanning(false);
     }
   };
 
   const handleImageScan = async () => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
+      const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
@@ -293,1145 +196,924 @@ export default function FoodScannerScreen() {
       });
 
       if (!result.canceled && result.assets[0].base64) {
-        setIsLoading(true);
+        setIsScanning(true);
+        
+        const response = await api.post("/food-scanner/image", {
+          imageBase64: result.assets[0].base64,
+        });
 
-        try {
-          const response = await api.post("/food-scanner/image", {
-            imageBase64: result.assets[0].base64,
-          });
-
-          if (response.data.success && response.data.data) {
-            setScanResult(response.data.data);
-            setProductData(response.data.data.product);
-            setUserAnalysis(response.data.data.user_analysis);
-            animateResultAppearance();
-            setShowResults(true);
-          } else {
-            Alert.alert(
-              texts.scanError,
-              language === "he"
-                ? "לא הצלחנו לזהות את המוצר בתמונה"
-                : "Could not identify product in image"
-            );
-          }
-        } catch (error) {
-          console.error("Image scan error:", error);
+        if (response.data.success) {
+          setScannedProduct(response.data.data);
+        } else {
           Alert.alert(
-            texts.scanError,
-            language === "he" ? "שגיאה בסריקת התמונה" : "Error scanning image"
+            t("food_scanner.scan_failed"),
+            t("food_scanner.scan_failed_message")
           );
-        } finally {
-          setIsLoading(false);
         }
       }
     } catch (error) {
-      console.error("Camera error:", error);
+      console.error("Image scan error:", error);
       Alert.alert(
-        texts.scanError,
-        language === "he"
-          ? "לא הצלחנו לפתוח את המצלמה"
-          : "Could not open camera"
+        t("food_scanner.scan_failed"),
+        t("food_scanner.scan_failed_message")
       );
+    } finally {
+      setIsScanning(false);
     }
   };
 
-  const animateResultAppearance = () => {
-    Animated.sequence([
-      Animated.timing(scaleAnimation, {
-        toValue: 1.1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnimation, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const handleTakePhoto = async () => {
+    try {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission needed", "Camera permission is required");
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        setIsScanning(true);
+        
+        const response = await api.post("/food-scanner/image", {
+          imageBase64: result.assets[0].base64,
+        });
+
+        if (response.data.success) {
+          setScannedProduct(response.data.data);
+        } else {
+          Alert.alert(
+            t("food_scanner.scan_failed"),
+            t("food_scanner.scan_failed_message")
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Photo scan error:", error);
+      Alert.alert(
+        t("food_scanner.scan_failed"),
+        t("food_scanner.scan_failed_message")
+      );
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const addIngredient = () => {
+    if (!newIngredient.name.trim() || !newIngredient.quantity.trim()) {
+      Alert.alert("Error", "Please fill in ingredient name and quantity");
+      return;
+    }
+
+    const ingredient: Ingredient = {
+      name: newIngredient.name.trim(),
+      quantity: parseFloat(newIngredient.quantity),
+      unit: newIngredient.unit,
+      category: newIngredient.category.trim() || "Other",
+    };
+
+    setIngredients([...ingredients, ingredient]);
+    setNewIngredient({ name: "", quantity: "", unit: "g", category: "" });
+  };
+
+  const removeIngredient = (index: number) => {
+    setIngredients(ingredients.filter((_, i) => i !== index));
   };
 
   const handleAddToMeal = async () => {
-    if (!scanResult) return;
+    if (!scannedProduct) return;
 
-    setIsAddingToMeal(true);
     try {
+      setIsAddingToMeal(true);
+
       const response = await api.post("/food-scanner/add-to-meal", {
-        productData: scanResult.product,
-        quantity,
-        mealTiming: "SNACK",
+        productData: scannedProduct.product,
+        quantity: parseFloat(quantity),
+        mealTiming,
       });
 
       if (response.data.success) {
         Alert.alert(
-          texts.added,
-          language === "he"
-            ? `${scanResult.product.name} נוסף בהצלחה לרישום הארוחות`
-            : `${scanResult.product.name} added successfully to meal log`
+          "Success",
+          "Product added to meal log successfully!",
+          [
+            {
+              text: "View Meals",
+              onPress: () => router.push("/(tabs)/history"),
+            },
+            { text: "OK" },
+          ]
         );
         setShowAddModal(false);
-        setScanResult(null);
-        setBarcodeInput("");
-        setQuantity(100);
-        setShowResults(false);
-      } else {
-        Alert.alert(texts.scanError, response.data.error);
+        setScannedProduct(null);
+        loadScanHistory();
       }
     } catch (error) {
       console.error("Add to meal error:", error);
-      Alert.alert(texts.scanError, texts.scanError);
+      Alert.alert("Error", "Failed to add product to meal log");
     } finally {
       setIsAddingToMeal(false);
     }
   };
 
-  const addToMealLog = async (mealTiming: string) => {
-    if (!productData) return;
-
-    try {
-      setIsLoading(true);
-
-      const response = await api.post("/food-scanner/add-to-meal", {
-        productData: productData,
-        quantity: parseInt(quantity.toString()),
-        mealTiming: mealTiming,
-      });
-
-      if (response.data.success) {
-        Alert.alert("הצלחה", "המוצר נוסף ליומן הארוחות שלך");
-        setShowAddToMeal(false);
-        setShowResults(false);
-      } else {
-        Alert.alert(
-          "שגיאה",
-          response.data.error || "לא הצלחנו להוסיף את המוצר ליומן"
-        );
-      }
-    } catch (error) {
-      console.error("Add to meal error:", error);
-      Alert.alert("שגיאה", "לא הצלחנו להוסיף את המוצר ליומן");
-    } finally {
-      setIsLoading(false);
-    }
+  const getHealthScoreColor = (score: number) => {
+    if (score >= 80) return colors.emerald500;
+    if (score >= 60) return "#f59e0b";
+    if (score >= 40) return "#f97316";
+    return "#ef4444";
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return "#4CAF50";
-    if (score >= 60) return "#FF9800";
-    if (score >= 40) return "#FF5722";
-    return "#F44336";
+  const getCompatibilityColor = (score: number) => {
+    if (score >= 80) return colors.emerald500;
+    if (score >= 60) return "#10b981";
+    if (score >= 40) return "#f59e0b";
+    return "#ef4444";
   };
 
-  const getHealthDeviationColor = (rate: number) => {
-    if (rate <= 10) return "#4CAF50"; // Green - Good
-    if (rate <= 25) return "#FF9800"; // Orange - Moderate
-    return "#F44336"; // Red - High deviation
-  };
+  const renderScanModeSelector = () => (
+    <View style={[styles.modeSelector, { backgroundColor: colors.surface }]}>
+      <TouchableOpacity
+        style={[
+          styles.modeButton,
+          scanMode === "barcode" && styles.modeButtonActive,
+          scanMode === "barcode" && { backgroundColor: colors.emerald500 },
+        ]}
+        onPress={() => setScanMode("barcode")}
+      >
+        <Scan
+          size={20}
+          color={scanMode === "barcode" ? "#ffffff" : colors.text}
+        />
+        <Text
+          style={[
+            styles.modeButtonText,
+            { color: scanMode === "barcode" ? "#ffffff" : colors.text },
+          ]}
+        >
+          {t("food_scanner.barcode")}
+        </Text>
+      </TouchableOpacity>
 
-  const renderNutritionCard = (
-    label: string,
-    value: number,
-    unit: string,
-    icon: React.ReactNode,
-    color: string
-  ) => (
-    <View style={[styles.nutritionCard, { borderLeftColor: color }]}>
-      <View style={styles.nutritionHeader}>
-        <View style={[styles.nutritionIcon, { backgroundColor: `${color}15` }]}>
-          {icon}
-        </View>
-        <Text style={styles.nutritionLabel}>{label}</Text>
-      </View>
-      <Text style={[styles.nutritionValue, { color }]}>
-        {value.toFixed(1)} {unit}
-      </Text>
+      <TouchableOpacity
+        style={[
+          styles.modeButton,
+          scanMode === "image" && styles.modeButtonActive,
+          scanMode === "image" && { backgroundColor: colors.emerald500 },
+        ]}
+        onPress={() => setScanMode("image")}
+      >
+        <ImageIcon
+          size={20}
+          color={scanMode === "image" ? "#ffffff" : colors.text}
+        />
+        <Text
+          style={[
+            styles.modeButtonText,
+            { color: scanMode === "image" ? "#ffffff" : colors.text },
+          ]}
+        >
+          {t("food_scanner.image")}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 
-  const renderCompatibilityScore = (score: number) => {
-    const color = score >= 80 ? "#2ECC71" : score >= 60 ? "#F39C12" : "#E74C3C";
-    const label = score >= 80 ? "מצוין" : score >= 60 ? "טוב" : "זהירות";
-
-    return (
-      <View style={styles.compatibilityContainer}>
-        <LinearGradient
-          colors={[`${color}15`, `${color}05`]}
-          style={styles.compatibilityGradient}
+  const renderScanActions = () => (
+    <View style={styles.scanActions}>
+      {scanMode === "barcode" ? (
+        <TouchableOpacity
+          style={[styles.scanButton, { backgroundColor: colors.emerald500 }]}
+          onPress={() => handleBarcodeScan("1234567890123")} // Demo barcode
+          disabled={isScanning}
         >
-          <View style={styles.compatibilityHeader}>
-            <Star size={24} color={color} />
-            <Text style={styles.compatibilityTitle}>{texts.compatibility}</Text>
-          </View>
-          <View style={styles.scoreContainer}>
-            <Text style={[styles.scoreValue, { color }]}>{score}/100</Text>
-            <Text style={[styles.scoreLabel, { color }]}>
-              {language === "he"
-                ? label
-                : score >= 80
-                ? "Excellent"
-                : score >= 60
-                ? "Good"
-                : "Caution"}
-            </Text>
-          </View>
-          <View style={styles.scoreProgressBg}>
-            <LinearGradient
-              colors={[color, `${color}80`]}
-              style={[styles.scoreProgress, { width: `${score}%` }]}
-            />
-          </View>
-        </LinearGradient>
-      </View>
-    );
-  };
-
-  const renderNutritionInfo = () => {
-    const nutrition =
-      productData?.nutrition_per_100g ||
-      scanResult?.product?.nutrition_per_100g;
-    if (!nutrition) return null;
-
-    const qty = parseInt(quantity.toString()) / 100;
-
-    return (
-      <View style={styles.nutritionContainer}>
-        <Text style={styles.sectionTitle}>ערכים תזונתיים ל-{quantity} גרם</Text>
-        <View style={styles.nutritionDisplayGrid}>
-          <View style={styles.nutritionDisplayItem}>
-            <Text style={styles.nutritionDisplayValue}>
-              {Math.round((nutrition.calories || 0) * qty)}
-            </Text>
-            <Text style={styles.nutritionDisplayLabel}>קלוריות</Text>
-          </View>
-          <View style={styles.nutritionDisplayItem}>
-            <Text style={styles.nutritionDisplayValue}>
-              {Math.round((nutrition.protein || 0) * qty)}ג
-            </Text>
-            <Text style={styles.nutritionDisplayLabel}>חלבון</Text>
-          </View>
-          <View style={styles.nutritionDisplayItem}>
-            <Text style={styles.nutritionDisplayValue}>
-              {Math.round((nutrition.carbs || 0) * qty)}ג
-            </Text>
-            <Text style={styles.nutritionDisplayLabel}>פחמימות</Text>
-          </View>
-          <View style={styles.nutritionDisplayItem}>
-            <Text style={styles.nutritionDisplayValue}>
-              {Math.round((nutrition.fat || 0) * qty)}ג
-            </Text>
-            <Text style={styles.nutritionDisplayLabel}>שומן</Text>
-          </View>
-          {(nutrition.fiber || 0) > 0 && (
-            <View style={styles.nutritionDisplayItem}>
-              <Text style={styles.nutritionDisplayValue}>
-                {Math.round((nutrition.fiber || 0) * qty)}ג
+          {isScanning ? (
+            <ActivityIndicator color="#ffffff" size="small" />
+          ) : (
+            <>
+              <Scan size={24} color="#ffffff" />
+              <Text style={styles.scanButtonText}>
+                {t("food_scanner.start_scan")}
               </Text>
-              <Text style={styles.nutritionDisplayLabel}>סיבים</Text>
-            </View>
+            </>
           )}
-          {(nutrition.sugar || 0) > 0 && (
-            <View style={styles.nutritionDisplayItem}>
-              <Text style={styles.nutritionDisplayValue}>
-                {Math.round((nutrition.sugar || 0) * qty)}ג
-              </Text>
-              <Text style={styles.nutritionDisplayLabel}>סוכר</Text>
-            </View>
-          )}
-          {(nutrition.sodium || 0) > 0 && (
-            <View style={styles.nutritionDisplayItem}>
-              <Text style={styles.nutritionDisplayValue}>
-                {Math.round((nutrition.sodium || 0) * qty)}מג
-              </Text>
-              <Text style={styles.nutritionDisplayLabel}>נתרן</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  const renderUserAnalysis = () => {
-    if (!userAnalysis) return null;
-
-    return (
-      <View style={styles.analysisContainer}>
-        <Text style={styles.sectionTitle}>ניתוח אישי</Text>
-
-        <View style={styles.scoreContainer}>
-          <View
-            style={[
-              styles.scoreCircle,
-              { borderColor: getScoreColor(userAnalysis.compatibility_score) },
-            ]}
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.imageActions}>
+          <TouchableOpacity
+            style={[styles.imageButton, { backgroundColor: colors.emerald500 }]}
+            onPress={handleTakePhoto}
+            disabled={isScanning}
           >
-            <Text
+            <CameraIcon size={20} color="#ffffff" />
+            <Text style={styles.imageButtonText}>
+              {t("food_scanner.take_photo")}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.imageButton,
+              { backgroundColor: colors.surface, borderColor: colors.emerald500 },
+            ]}
+            onPress={handleImageScan}
+            disabled={isScanning}
+          >
+            <ImageIcon size={20} color={colors.emerald500} />
+            <Text style={[styles.imageButtonText, { color: colors.emerald500 }]}>
+              {t("food_scanner.upload_image")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+
+  const renderProductDetails = () => {
+    if (!scannedProduct) return null;
+
+    const { product, user_analysis } = scannedProduct;
+
+    return (
+      <Animated.View
+        style={[
+          styles.productCard,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={[colors.emerald500 + "15", colors.emerald500 + "05"]}
+          style={styles.productHeader}
+        >
+          <View style={styles.productInfo}>
+            <Text style={[styles.productName, { color: colors.text }]}>
+              {product.name}
+            </Text>
+            {product.brand && (
+              <Text style={[styles.productBrand, { color: colors.textSecondary }]}>
+                {product.brand}
+              </Text>
+            )}
+            <View style={styles.categoryBadge}>
+              <Text style={[styles.categoryText, { color: colors.emerald500 }]}>
+                {product.category}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.scoreContainer}>
+            <View
               style={[
-                styles.scoreText,
-                { color: getScoreColor(userAnalysis.compatibility_score) },
+                styles.healthScore,
+                {
+                  backgroundColor: getHealthScoreColor(
+                    product.health_score || 50
+                  ) + "20",
+                  borderColor: getHealthScoreColor(product.health_score || 50),
+                },
               ]}
             >
-              {userAnalysis.compatibility_score}
+              <Text
+                style={[
+                  styles.scoreText,
+                  { color: getHealthScoreColor(product.health_score || 50) },
+                ]}
+              >
+                {product.health_score || 50}
+              </Text>
+              <Text
+                style={[
+                  styles.scoreLabel,
+                  { color: getHealthScoreColor(product.health_score || 50) },
+                ]}
+              >
+                Health
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* Nutrition Grid */}
+        <View style={styles.nutritionGrid}>
+          <View style={[styles.nutritionItem, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.nutritionValue, { color: colors.text }]}>
+              {product.nutrition_per_100g.calories}
+            </Text>
+            <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>
+              Calories
             </Text>
           </View>
-          <Text style={styles.healthAssessment}>
-            {userAnalysis.health_assessment}
-          </Text>
+          <View style={[styles.nutritionItem, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.nutritionValue, { color: colors.text }]}>
+              {product.nutrition_per_100g.protein}g
+            </Text>
+            <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>
+              Protein
+            </Text>
+          </View>
+          <View style={[styles.nutritionItem, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.nutritionValue, { color: colors.text }]}>
+              {product.nutrition_per_100g.carbs}g
+            </Text>
+            <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>
+              Carbs
+            </Text>
+          </View>
+          <View style={[styles.nutritionItem, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.nutritionValue, { color: colors.text }]}>
+              {product.nutrition_per_100g.fat}g
+            </Text>
+            <Text style={[styles.nutritionLabel, { color: colors.textSecondary }]}>
+              Fat
+            </Text>
+          </View>
         </View>
 
-        {userAnalysis.alerts.length > 0 && (
-          <View style={styles.alertsContainer}>
-            <Text style={styles.alertsTitle}>התראות:</Text>
-            {userAnalysis.alerts.map((alert, index) => (
-              <Text key={index} style={styles.alertText}>
-                {alert}
-              </Text>
-            ))}
-          </View>
-        )}
-
-        {userAnalysis.recommendations.length > 0 && (
-          <View style={styles.recommendationsContainer}>
-            <Text style={styles.recommendationsTitle}>המלצות:</Text>
-            {userAnalysis.recommendations.map((rec, index) => (
-              <Text key={index} style={styles.recommendationText}>
-                {rec}
-              </Text>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  const renderMealComponents = () => {
-    if (!productData || !productData.ingredients) return null;
-
-    return (
-      <View style={styles.componentsContainer}>
-        <Text style={styles.sectionTitle}>{texts.ingredients}</Text>
-        <View style={styles.componentsGrid}>
-          {productData.ingredients.map((ingredient, index) => (
-            <View key={index} style={styles.componentItem}>
-              <Text style={styles.componentName}>{ingredient}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
-
-  const renderRatingSection = () => {
-    if (hasRated) return null;
-
-    return (
-      <View style={styles.ratingContainer}>
-        <Text style={styles.sectionTitle}>דרג את המוצר</Text>
-        <Text style={styles.ratingDescription}>
-          איך היית מדרג את המוצר הזה?
-        </Text>
-        <View style={styles.starsContainer}>
-          {[1, 2, 3, 4, 5].map((star) => (
-            <TouchableOpacity
-              key={star}
-              onPress={() => setMealRating(star)}
-              style={styles.starButton}
+        {/* User Analysis */}
+        <View style={styles.analysisSection}>
+          <View style={styles.compatibilityHeader}>
+            <Target size={16} color={colors.emerald500} />
+            <Text style={[styles.analysisTitle, { color: colors.text }]}>
+              Personal Analysis
+            </Text>
+            <View
+              style={[
+                styles.compatibilityBadge,
+                {
+                  backgroundColor: getCompatibilityColor(
+                    user_analysis.compatibility_score
+                  ) + "20",
+                  borderColor: getCompatibilityColor(
+                    user_analysis.compatibility_score
+                  ),
+                },
+              ]}
             >
-              <Ionicons
-                name={star <= mealRating ? "star" : "star-outline"}
-                size={32}
-                color={star <= mealRating ? "#FFD700" : "#ddd"}
-              />
-            </TouchableOpacity>
-          ))}
+              <Text
+                style={[
+                  styles.compatibilityScore,
+                  {
+                    color: getCompatibilityColor(
+                      user_analysis.compatibility_score
+                    ),
+                  },
+                ]}
+              >
+                {user_analysis.compatibility_score}%
+              </Text>
+            </View>
+          </View>
+
+          <Text style={[styles.healthAssessment, { color: colors.text }]}>
+            {user_analysis.health_assessment}
+          </Text>
+
+          {/* Alerts */}
+          {user_analysis.alerts.length > 0 && (
+            <View style={styles.alertsContainer}>
+              {user_analysis.alerts.map((alert, index) => (
+                <View key={index} style={styles.alertItem}>
+                  <AlertTriangle size={14} color="#ef4444" />
+                  <Text style={[styles.alertText, { color: "#ef4444" }]}>
+                    {alert}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Recommendations */}
+          {user_analysis.recommendations.length > 0 && (
+            <View style={styles.recommendationsContainer}>
+              {user_analysis.recommendations.map((rec, index) => (
+                <View key={index} style={styles.recommendationItem}>
+                  <Check size={14} color={colors.emerald500} />
+                  <Text style={[styles.recommendationText, { color: colors.text }]}>
+                    {rec}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
-        {mealRating > 0 && (
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
           <TouchableOpacity
-            style={styles.submitRatingButton}
-            onPress={() => {
-              setHasRated(true);
-              Alert.alert("Success", "Rating saved successfully!");
-            }}
+            style={[
+              styles.secondaryButton,
+              { borderColor: colors.emerald500, backgroundColor: colors.surface },
+            ]}
+            onPress={() => setShowIngredientsModal(true)}
           >
-            <Text style={styles.submitRatingText}>שמור דירוג</Text>
+            <Edit3 size={16} color={colors.emerald500} />
+            <Text style={[styles.secondaryButtonText, { color: colors.emerald500 }]}>
+              Edit Ingredients
+            </Text>
           </TouchableOpacity>
-        )}
-      </View>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, { backgroundColor: colors.emerald500 }]}
+            onPress={() => setShowAddModal(true)}
+          >
+            <Plus size={16} color="#ffffff" />
+            <Text style={styles.primaryButtonText}>Add to Meal</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     );
   };
 
-  if (hasPermission === null) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#16A085" />
-        <Text>מבקש הרשאות מצלמה...</Text>
-      </View>
-    );
-  }
+  const renderAddToMealModal = () => (
+    <Modal
+      visible={showAddModal}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowAddModal(false)}
+    >
+      <BlurView intensity={80} style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.card }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Add to Meal Log
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowAddModal(false)}
+              style={styles.closeButton}
+            >
+              <X size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
-  if (hasPermission === false) {
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>
+                Quantity (grams)
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    color: colors.text,
+                  },
+                ]}
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="numeric"
+                placeholder="100"
+                placeholderTextColor={colors.textSecondary}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>
+                Meal Timing
+              </Text>
+              <View style={styles.mealTimingOptions}>
+                {["BREAKFAST", "LUNCH", "DINNER", "SNACK"].map((timing) => (
+                  <TouchableOpacity
+                    key={timing}
+                    style={[
+                      styles.timingOption,
+                      mealTiming === timing && {
+                        backgroundColor: colors.emerald500,
+                      },
+                      { borderColor: colors.border },
+                    ]}
+                    onPress={() => setMealTiming(timing)}
+                  >
+                    <Text
+                      style={[
+                        styles.timingOptionText,
+                        {
+                          color:
+                            mealTiming === timing ? "#ffffff" : colors.text,
+                        },
+                      ]}
+                    >
+                      {timing}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.addButton,
+                { backgroundColor: colors.emerald500 },
+                isAddingToMeal && styles.addButtonDisabled,
+              ]}
+              onPress={handleAddToMeal}
+              disabled={isAddingToMeal}
+            >
+              {isAddingToMeal ? (
+                <ActivityIndicator color="#ffffff" size="small" />
+              ) : (
+                <>
+                  <Plus size={20} color="#ffffff" />
+                  <Text style={styles.addButtonText}>Add to Meal Log</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </BlurView>
+    </Modal>
+  );
+
+  const renderIngredientsModal = () => (
+    <Modal
+      visible={showIngredientsModal}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowIngredientsModal(false)}
+    >
+      <BlurView intensity={80} style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.card }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Manage Ingredients
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowIngredientsModal(false)}
+              style={styles.closeButton}
+            >
+              <X size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {/* Add New Ingredient */}
+            <View style={styles.addIngredientSection}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                Add Ingredient
+              </Text>
+
+              <View style={styles.ingredientForm}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      color: colors.text,
+                    },
+                  ]}
+                  value={newIngredient.name}
+                  onChangeText={(text) =>
+                    setNewIngredient({ ...newIngredient, name: text })
+                  }
+                  placeholder="Ingredient name"
+                  placeholderTextColor={colors.textSecondary}
+                />
+
+                <View style={styles.quantityRow}>
+                  <TextInput
+                    style={[
+                      styles.quantityInput,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                        color: colors.text,
+                      },
+                    ]}
+                    value={newIngredient.quantity}
+                    onChangeText={(text) =>
+                      setNewIngredient({ ...newIngredient, quantity: text })
+                    }
+                    placeholder="100"
+                    keyboardType="numeric"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+
+                  <View style={styles.unitSelector}>
+                    {["g", "ml", "cup", "tbsp", "tsp"].map((unit) => (
+                      <TouchableOpacity
+                        key={unit}
+                        style={[
+                          styles.unitOption,
+                          newIngredient.unit === unit && {
+                            backgroundColor: colors.emerald500,
+                          },
+                          { borderColor: colors.border },
+                        ]}
+                        onPress={() =>
+                          setNewIngredient({ ...newIngredient, unit })
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.unitText,
+                            {
+                              color:
+                                newIngredient.unit === unit
+                                  ? "#ffffff"
+                                  : colors.text,
+                            },
+                          ]}
+                        >
+                          {unit}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      color: colors.text,
+                    },
+                  ]}
+                  value={newIngredient.category}
+                  onChangeText={(text) =>
+                    setNewIngredient({ ...newIngredient, category: text })
+                  }
+                  placeholder="Category (optional)"
+                  placeholderTextColor={colors.textSecondary}
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.addIngredientButton,
+                    { backgroundColor: colors.emerald500 },
+                  ]}
+                  onPress={addIngredient}
+                >
+                  <Plus size={16} color="#ffffff" />
+                  <Text style={styles.addIngredientButtonText}>
+                    Add Ingredient
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Ingredients List */}
+            {ingredients.length > 0 && (
+              <View style={styles.ingredientsListSection}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  Added Ingredients ({ingredients.length})
+                </Text>
+
+                {ingredients.map((ingredient, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.ingredientItem,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                    ]}
+                  >
+                    <View style={styles.ingredientInfo}>
+                      <Text style={[styles.ingredientName, { color: colors.text }]}>
+                        {ingredient.name}
+                      </Text>
+                      <Text
+                        style={[styles.ingredientDetails, { color: colors.textSecondary }]}
+                      >
+                        {ingredient.quantity} {ingredient.unit}
+                        {ingredient.category && ` • ${ingredient.category}`}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => removeIngredient(index)}
+                      style={styles.removeButton}
+                    >
+                      <Trash2 size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.saveIngredientsButton,
+                { backgroundColor: colors.emerald500 },
+              ]}
+              onPress={() => setShowIngredientsModal(false)}
+            >
+              <Save size={16} color="#ffffff" />
+              <Text style={styles.saveIngredientsButtonText}>
+                Save Ingredients
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </BlurView>
+    </Modal>
+  );
+
+  const renderHistoryModal = () => (
+    <Modal
+      visible={showHistoryModal}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowHistoryModal(false)}
+    >
+      <BlurView intensity={80} style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.card }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Scan History
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowHistoryModal(false)}
+              style={styles.closeButton}
+            >
+              <X size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {scanHistory.length === 0 ? (
+              <View style={styles.emptyHistory}>
+                <Search size={48} color={colors.textSecondary} />
+                <Text style={[styles.emptyHistoryText, { color: colors.textSecondary }]}>
+                  No scan history yet
+                </Text>
+                <Text style={[styles.emptyHistorySubtext, { color: colors.textSecondary }]}>
+                  Start scanning products to build your history
+                </Text>
+              </View>
+            ) : (
+              scanHistory.map((item, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.historyItem,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.historyItemInfo}>
+                    <Text style={[styles.historyItemName, { color: colors.text }]}>
+                      {item.name || item.product_name}
+                    </Text>
+                    {item.brand && (
+                      <Text
+                        style={[styles.historyItemBrand, { color: colors.textSecondary }]}
+                      >
+                        {item.brand}
+                      </Text>
+                    )}
+                    <Text
+                      style={[styles.historyItemDate, { color: colors.textSecondary }]}
+                    >
+                      {new Date(item.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <View style={styles.historyItemType}>
+                    <Text
+                      style={[
+                        styles.historyTypeText,
+                        { color: colors.emerald500 },
+                      ]}
+                    >
+                      {item.type}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </BlurView>
+    </Modal>
+  );
+
+  if (isScanning) {
     return (
-      <View style={styles.noPermissionContainer}>
-        <Ionicons name="camera" size={48} color="#666" />
-        <Text style={styles.noPermissionText}>
-          נדרשת הרשאה למצלמה כדי לסרוק מוצרים
-        </Text>
-        <TouchableOpacity
-          style={styles.permissionButton}
-          onPress={getCameraPermissions}
-        >
-          <Text style={styles.permissionButtonText}>הענק הרשאה</Text>
-        </TouchableOpacity>
-      </View>
+      <LoadingScreen
+        text={
+          language === "he"
+            ? "מנתח מוצר..."
+            : "Analyzing product..."
+        }
+      />
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: fadeAnimation,
-              transform: [
-                {
-                  translateY: slideAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-50, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View>
-            <Text style={styles.title}>{texts.title}</Text>
-            <Text style={styles.subtitle}>{texts.subtitle}</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.background }]}>
+        <View style={styles.headerContent}>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {t("food_scanner.title")}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Scan products for instant nutrition info
+            </Text>
           </View>
-          <TouchableOpacity
-            style={styles.historyButton}
-            onPress={() => {
-              setShowHistoryModal(true);
-              loadScanHistory();
-            }}
-          >
-            <History size={24} color="#16A085" />
-          </TouchableOpacity>
-        </Animated.View>
 
-        {/* Scan Options */}
+          <TouchableOpacity
+            style={[
+              styles.historyButton,
+              { backgroundColor: colors.emerald500 + "15", borderColor: colors.emerald500 },
+            ]}
+            onPress={() => setShowHistoryModal(true)}
+          >
+            <Clock size={20} color={colors.emerald500} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Mode Selector */}
+        {renderScanModeSelector()}
+
+        {/* Instructions */}
         <Animated.View
           style={[
-            styles.scanOptions,
+            styles.instructionsCard,
             {
-              opacity: fadeAnimation,
-              transform: [{ scale: scaleAnimation }],
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
             },
           ]}
         >
           <LinearGradient
-            colors={["rgba(22, 160, 133, 0.1)", "rgba(22, 160, 133, 0.05)"]}
-            style={styles.scanOptionsGradient}
+            colors={[colors.emerald500 + "10", colors.emerald500 + "05"]}
+            style={styles.instructionsGradient}
           >
-            {/* Mode Selector */}
-            <View style={styles.modeSelector}>
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  scanMode === "barcode" && styles.activeModeButton,
-                ]}
-                onPress={() => setScanMode("barcode")}
-              >
-                <QrCode
-                  size={20}
-                  color={scanMode === "barcode" ? "#fff" : "#666"}
-                />
-                <Text
-                  style={[
-                    styles.modeButtonText,
-                    scanMode === "barcode" && styles.activeModeButtonText,
-                  ]}
-                >
-                  ברקוד
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  scanMode === "image" && styles.activeModeButton,
-                ]}
-                onPress={() => setScanMode("image")}
-              >
-                <CameraIcon
-                  size={20}
-                  color={scanMode === "image" ? "#fff" : "#666"}
-                />
-                <Text
-                  style={[
-                    styles.modeButtonText,
-                    scanMode === "image" && styles.activeModeButtonText,
-                  ]}
-                >
-                  תמונה
-                </Text>
-              </TouchableOpacity>
+            <View style={styles.instructionsHeader}>
+              <Info size={20} color={colors.emerald500} />
+              <Text style={[styles.instructionsTitle, { color: colors.text }]}>
+                {scanMode === "barcode"
+                  ? t("food_scanner.barcode_instructions")
+                  : t("food_scanner.image_instructions")}
+              </Text>
             </View>
-
-            {scanMode === "barcode" ? (
-              <>
-                <TouchableOpacity
-                  style={styles.scanButton}
-                  onPress={() => setIsScanning(true)}
-                  disabled={isLoading}
-                >
-                  <LinearGradient
-                    colors={["#16A085", "#1ABC9C"]}
-                    style={styles.scanButtonGradient}
-                  >
-                    <QrCode size={32} color="#FFFFFF" />
-                    <Text style={styles.scanButtonText}>
-                      {texts.scanBarcode}
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <View style={styles.manualEntry}>
-                  <View style={styles.inputContainer}>
-                    <QrCode size={20} color="#7F8C8D" />
-                    <TextInput
-                      style={styles.barcodeInput}
-                      placeholder={texts.enterBarcode}
-                      placeholderTextColor="#7F8C8D"
-                      value={barcodeInput}
-                      onChangeText={setBarcodeInput}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.scanButtonSmall}
-                    onPress={handleBarcodeSearch}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.scanButtonSmallText}>
-                        {texts.scan}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <TouchableOpacity
-                style={styles.scanButton}
-                onPress={handleImageScan}
-                disabled={isLoading}
-              >
-                <LinearGradient
-                  colors={["#16A085", "#1ABC9C"]}
-                  style={styles.scanButtonGradient}
-                >
-                  <CameraIcon size={32} color="#FFFFFF" />
-                  <Text style={styles.scanButtonText}>{texts.scanImage}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
+            <Text style={[styles.instructionsText, { color: colors.textSecondary }]}>
+              {scanMode === "barcode"
+                ? "Point your camera at the product barcode for instant nutrition information"
+                : "Take a clear photo of the nutrition label or product packaging"}
+            </Text>
           </LinearGradient>
         </Animated.View>
 
-        {/* Camera View for Barcode */}
-        {isScanning && scanMode === "barcode" && (
-          <View style={styles.cameraContainer}>
-            <CameraView
-              style={styles.camera}
-              onBarcodeScanned={handleBarcodeScan}
-              barcodeScannerSettings={{
-                barcodeTypes: ["ean13", "ean8", "upc_a", "code128", "code39"],
-              }}
-            >
-              <View style={styles.overlay}>
-                <View style={styles.scanFrame} />
-                <Text style={styles.scanInstructions}>
-                  כוון את הברקוד למרכז המסגרת
-                </Text>
-              </View>
-            </CameraView>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setIsScanning(false)}
-            >
-              <Text style={styles.cancelButtonText}>ביטול</Text>
-            </TouchableOpacity>
+        {/* Scan Actions */}
+        {renderScanActions()}
+
+        {/* Product Details */}
+        {renderProductDetails()}
+
+        {/* Quick Tips */}
+        <Animated.View
+          style={[
+            styles.tipsCard,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              opacity: fadeAnim,
+            },
+          ]}
+        >
+          <View style={styles.tipsHeader}>
+            <Sparkles size={16} color={colors.emerald500} />
+            <Text style={[styles.tipsTitle, { color: colors.text }]}>
+              Pro Tips
+            </Text>
           </View>
-        )}
-
-        {/* Scan Result */}
-        {scanResult && (
-          <Animated.View
-            style={[
-              styles.resultContainer,
-              {
-                opacity: fadeAnimation,
-                transform: [{ scale: scaleAnimation }],
-              },
-            ]}
-          >
-            <BlurView intensity={20} style={styles.resultBlur}>
-              <LinearGradient
-                colors={[
-                  "rgba(255, 255, 255, 0.9)",
-                  "rgba(255, 255, 255, 0.7)",
-                ]}
-                style={styles.resultGradient}
-              >
-                {/* Product Info */}
-                <View style={styles.productInfo}>
-                  <View style={styles.productHeader}>
-                    <Text style={styles.productName}>
-                      {scanResult.product.name}
-                    </Text>
-                    {scanResult.product.brand && (
-                      <Text style={styles.productBrand}>
-                        {scanResult.product.brand}
-                      </Text>
-                    )}
-                    <Text style={styles.productCategory}>
-                      {scanResult.product.category}
-                    </Text>
-                    {scanResult.product.barcode && (
-                      <Text style={styles.productBarcode}>
-                        {texts.barcode}: {scanResult.product.barcode}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.productStats}>
-                    <View style={styles.calorieHighlight}>
-                      <Text style={styles.calorieHighlightValue}>
-                        {scanResult.product.nutrition_per_100g.calories || 0}
-                      </Text>
-                      <Text style={styles.calorieHighlightLabel}>
-                        {texts.calories} / 100g
-                      </Text>
-                    </View>
-                    {scanResult.product.health_score && (
-                      <View style={styles.healthScoreContainer}>
-                        <Text style={styles.healthScoreLabel}>
-                          {texts.healthScore}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.healthScoreValue,
-                            {
-                              color:
-                                (scanResult.product.health_score || 50) >= 70
-                                  ? "#10B981"
-                                  : (scanResult.product.health_score || 50) >=
-                                    50
-                                  ? "#F59E0B"
-                                  : "#EF4444",
-                            },
-                          ]}
-                        >
-                          {scanResult.product.health_score || 50}/100
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                {/* Compatibility Score */}
-                {renderCompatibilityScore(
-                  scanResult.user_analysis.compatibility_score
-                )}
-
-                {/* Nutrition Facts */}
-                <View style={styles.nutritionSection}>
-                  <Text style={styles.sectionTitle}>
-                    {texts.nutritionPer100g}
-                  </Text>
-                  <View style={styles.nutritionGrid}>
-                    {renderNutritionCard(
-                      texts.calories,
-                      scanResult.product.nutrition_per_100g.calories,
-                      texts.kcal,
-                      <Zap size={16} color="#E74C3C" />,
-                      "#E74C3C"
-                    )}
-                    {renderNutritionCard(
-                      texts.protein,
-                      scanResult.product.nutrition_per_100g.protein,
-                      texts.g,
-                      <Heart size={16} color="#9B59B6" />,
-                      "#9B59B6"
-                    )}
-                    {renderNutritionCard(
-                      texts.carbs,
-                      scanResult.product.nutrition_per_100g.carbs || 0,
-                      texts.g,
-                      <Wheat size={16} color="#F39C12" />,
-                      "#F39C12"
-                    )}
-                    {renderNutritionCard(
-                      texts.fat,
-                      scanResult.product.nutrition_per_100g.fat || 0,
-                      texts.g,
-                      <Droplet size={16} color="#9B59B6" />,
-                      "#9B59B6"
-                    )}
-                    {(scanResult.product.nutrition_per_100g.fiber || 0) > 0 && (
-                      <>
-                        {renderNutritionCard(
-                          texts.fiber,
-                          scanResult.product.nutrition_per_100g.fiber || 0,
-                          texts.g,
-                          <Leaf size={16} color="#27AE60" />,
-                          "#27AE60"
-                        )}
-                      </>
-                    )}
-                    {(scanResult.product.nutrition_per_100g.sugar || 0) > 0 && (
-                      <>
-                        {renderNutritionCard(
-                          texts.sugar,
-                          scanResult.product.nutrition_per_100g.sugar || 0,
-                          texts.g,
-                          <CircleDot size={16} color="#E67E22" />,
-                          "#E67E22"
-                        )}
-                      </>
-                    )}
-                    {(scanResult.product.nutrition_per_100g.sodium || 0) >
-                      0 && (
-                      <>
-                        {renderNutritionCard(
-                          texts.sodium,
-                          scanResult.product.nutrition_per_100g.sodium || 0,
-                          "mg",
-                          <Minus size={16} color="#34495E" />,
-                          "#34495E"
-                        )}
-                      </>
-                    )}
-                  </View>
-                </View>
-
-                {/* Daily Contribution */}
-                <View style={styles.contributionSection}>
-                  <Text style={styles.sectionTitle}>
-                    {texts.dailyContribution}
-                  </Text>
-                  <View style={styles.contributionGrid}>
-                    {Object.entries(
-                      scanResult.user_analysis.daily_contribution
-                    ).map(([key, value]) => (
-                      <View key={key} style={styles.contributionItem}>
-                        <Text style={styles.contributionLabel}>
-                          {key === "calories_percent"
-                            ? texts.calories
-                            : key === "protein_percent"
-                            ? texts.protein
-                            : key === "carbs_percent"
-                            ? texts.carbs
-                            : texts.fat}
-                        </Text>
-                        <Text style={styles.contributionValue}>
-                          {value.toFixed(1)}
-                          {texts.percent}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Alerts */}
-                {scanResult.user_analysis.alerts.length > 0 && (
-                  <View style={styles.alertsSection}>
-                    <Text style={styles.sectionTitle}>{texts.alerts}</Text>
-                    {scanResult.user_analysis.alerts.map((alert, index) => (
-                      <View key={index} style={styles.alertItem}>
-                        <AlertTriangle size={16} color="#E74C3C" />
-                        <Text style={styles.alertText}>{alert}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Recommendations */}
-                {scanResult.user_analysis.recommendations.length > 0 && (
-                  <View style={styles.recommendationsSection}>
-                    <Text style={styles.sectionTitle}>
-                      {texts.recommendations}
-                    </Text>
-                    {scanResult.user_analysis.recommendations.map(
-                      (rec, index) => (
-                        <View key={index} style={styles.recommendationItem}>
-                          <Sparkles size={16} color="#16A085" />
-                          <Text style={styles.recommendationText}>{rec}</Text>
-                        </View>
-                      )
-                    )}
-                  </View>
-                )}
-
-                {/* Health Assessment */}
-                <View style={styles.assessmentSection}>
-                  <Text style={styles.sectionTitle}>
-                    {texts.healthAssessment}
-                  </Text>
-                  <View style={styles.assessmentContainer}>
-                    <Shield size={20} color="#16A085" />
-                    <Text style={styles.assessmentText}>
-                      {scanResult.user_analysis.health_assessment}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Add to Meal Button */}
-                <TouchableOpacity
-                  style={styles.addToMealButton}
-                  onPress={() => setShowAddModal(true)}
-                >
-                  <LinearGradient
-                    colors={["#16A085", "#1ABC9C"]}
-                    style={styles.addToMealGradient}
-                  >
-                    <Plus size={20} color="#FFFFFF" />
-                    <Text style={styles.addToMealText}>{texts.addToMeal}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </LinearGradient>
-            </BlurView>
-          </Animated.View>
-        )}
-
-        {/* Loading */}
-        {isLoading && (
-          <LoadingScreen
-            text={isRTL ? "טוען את הסורק..." : "Loading your scanner..."}
-          />
-        )}
-
-        {/* Add to Meal Modal */}
-        <Modal
-          visible={showAddModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowAddModal(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                <X size={24} color="#2C3E50" />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>{texts.addToMeal}</Text>
-              <View style={{ width: 24 }} />
-            </View>
-
-            <View style={styles.modalContent}>
-              <View style={styles.quantitySection}>
-                <Text style={styles.quantityLabel}>{texts.quantity}</Text>
-                <View style={styles.quantityControls}>
-                  <TouchableOpacity
-                    style={styles.quantityButton}
-                    onPress={() => setQuantity(Math.max(1, quantity - 10))}
-                  >
-                    <Minus size={20} color="#16A085" />
-                  </TouchableOpacity>
-                  <TextInput
-                    style={styles.quantityInput}
-                    value={quantity.toString()}
-                    onChangeText={(text) => setQuantity(parseInt(text) || 1)}
-                    keyboardType="numeric"
-                  />
-                  <TouchableOpacity
-                    style={styles.quantityButton}
-                    onPress={() => setQuantity(quantity + 10)}
-                  >
-                    <Plus size={20} color="#16A085" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleAddToMeal}
-                disabled={isAddingToMeal}
-              >
-                <LinearGradient
-                  colors={["#16A085", "#1ABC9C"]}
-                  style={styles.confirmGradient}
-                >
-                  {isAddingToMeal ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Check size={20} color="#FFFFFF" />
-                      <Text style={styles.confirmText}>{texts.addToMeal}</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </SafeAreaView>
-        </Modal>
-
-        {/* History Modal */}
-        <Modal
-          visible={showHistoryModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowHistoryModal(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
-                <X size={24} color="#2C3E50" />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>{texts.recentScans}</Text>
-              <View style={{ width: 24 }} />
-            </View>
-
-            <ScrollView style={styles.historyContent}>
-              {isLoadingHistory ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#16A085" />
-                </View>
-              ) : scanHistory.length > 0 ? (
-                scanHistory.map((item, index) => (
-                  <View key={index} style={styles.historyItem}>
-                    <View style={styles.historyItemContent}>
-                      <Text style={styles.historyItemName}>
-                        {item.product_name || item.name}
-                      </Text>
-                      <Text style={styles.historyItemBrand}>{item.brand}</Text>
-                      <Text style={styles.historyItemDate}>
-                        {new Date(item.created_at).toLocaleDateString()}
-                      </Text>
-                    </View>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.emptyHistory}>
-                  <BarChart3 size={64} color="#BDC3C7" />
-                  <Text style={styles.emptyHistoryText}>
-                    {language === "he"
-                      ? "אין היסטוריית סריקות"
-                      : "No scan history"}
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-
-        {/* Results Modal - Original Design */}
-        <Modal
-          visible={showResults}
-          animationType="slide"
-          presentationStyle="pageSheet"
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowResults(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>תוצאות סריקה</Text>
-              <TouchableOpacity onPress={() => setShowAddToMeal(true)}>
-                <Ionicons name="add-circle" size={24} color="#007AFF" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.resultsContainer}>
-              {productData && (
-                <>
-                  {/* Product Info */}
-                  <View style={styles.productInfo}>
-                    <View style={styles.productCard}>
-                      <View style={styles.productMainInfo}>
-                        <Text style={styles.productName}>
-                          {productData?.name || scanResult?.product?.name}
-                        </Text>
-                        {(productData?.brand || scanResult?.product?.brand) && (
-                          <Text style={styles.productBrand}>
-                            {productData?.brand || scanResult?.product?.brand}
-                          </Text>
-                        )}
-                        <Text style={styles.productCategory}>
-                          {productData?.category ||
-                            scanResult?.product?.category}
-                        </Text>
-                        {(productData?.barcode ||
-                          scanResult?.product?.barcode) && (
-                          <Text style={styles.productBarcode}>
-                            ברקוד:{" "}
-                            {productData?.barcode ||
-                              scanResult?.product?.barcode}
-                          </Text>
-                        )}
-                      </View>
-
-                      <View style={styles.productNutritionSummary}>
-                        <View style={styles.calorieCard}>
-                          <Text style={styles.calorieValue}>
-                            {productData?.nutrition_per_100g?.calories ||
-                              scanResult?.product?.nutrition_per_100g
-                                ?.calories ||
-                              0}
-                          </Text>
-                          <Text style={styles.calorieLabel}>קלוריות</Text>
-                          <Text style={styles.caloriePer}>ל-100 גרם</Text>
-                        </View>
-
-                        <View style={styles.macroGrid}>
-                          <View style={styles.macroItem}>
-                            <Text
-                              style={[styles.macroValue, { color: "#E74C3C" }]}
-                            >
-                              {(
-                                productData?.nutrition_per_100g?.protein ||
-                                scanResult?.product?.nutrition_per_100g
-                                  ?.protein ||
-                                0
-                              ).toFixed(1)}
-                              ג
-                            </Text>
-                            <Text style={styles.macroLabel}>חלבון</Text>
-                          </View>
-                          <View style={styles.macroItem}>
-                            <Text
-                              style={[styles.macroValue, { color: "#F39C12" }]}
-                            >
-                              {(
-                                productData?.nutrition_per_100g?.carbs ||
-                                scanResult?.product?.nutrition_per_100g
-                                  ?.carbs ||
-                                0
-                              ).toFixed(1)}
-                              ג
-                            </Text>
-                            <Text style={styles.macroLabel}>פחמימות</Text>
-                          </View>
-                          <View style={styles.macroItem}>
-                            <Text
-                              style={[styles.macroValue, { color: "#9B59B6" }]}
-                            >
-                              {(
-                                productData?.nutrition_per_100g?.fat ||
-                                scanResult?.product?.nutrition_per_100g?.fat ||
-                                0
-                              ).toFixed(1)}
-                              ג
-                            </Text>
-                            <Text style={styles.macroLabel}>שומן</Text>
-                          </View>
-                        </View>
-
-                        {(productData?.health_score ||
-                          scanResult?.product?.health_score) && (
-                          <View style={styles.healthScoreCard}>
-                            <Text style={styles.healthScoreLabel}>
-                              ניקוד בריאות
-                            </Text>
-                            <View
-                              style={[
-                                styles.healthScoreBadge,
-                                {
-                                  backgroundColor:
-                                    (productData?.health_score ||
-                                      scanResult?.product?.health_score ||
-                                      50) >= 70
-                                      ? "#10B981"
-                                      : (productData?.health_score ||
-                                          scanResult?.product?.health_score ||
-                                          50) >= 50
-                                      ? "#F59E0B"
-                                      : "#EF4444",
-                                },
-                              ]}
-                            >
-                              <Text style={styles.healthScoreValue}>
-                                {productData?.health_score ||
-                                  scanResult?.product?.health_score ||
-                                  50}
-                              </Text>
-                            </View>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.quantitySelector}>
-                    <Text style={styles.quantityLabel}>כמות (גרם):</Text>
-                    <TextInput
-                      style={styles.quantityInput}
-                      value={quantity.toString()}
-                      onChangeText={(text) =>
-                        setQuantity(parseInt(text) || 100)
-                      }
-                      keyboardType="numeric"
-                      selectTextOnFocus
-                    />
-                  </View>
-
-                  {renderNutritionInfo()}
-                  {renderUserAnalysis()}
-                  {renderMealComponents()}
-                  {renderRatingSection()}
-
-                  {productData.allergens.length > 0 && (
-                    <View style={styles.allergensContainer}>
-                      <Text style={styles.sectionTitle}>אלרגנים</Text>
-                      <Text style={styles.allergensText}>
-                        {productData.allergens.join(", ")}
-                      </Text>
-                    </View>
-                  )}
-                </>
-              )}
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-
-        {/* Add to Meal Modal - Original Design */}
-        <Modal
-          visible={showAddToMeal}
-          animationType="slide"
-          presentationStyle="formSheet"
-        >
-          <SafeAreaView style={styles.addMealContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowAddToMeal(false)}>
-                <Text style={styles.cancelText}>ביטול</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>הוסף ליומן ארוחות</Text>
-              <View style={{ width: 50 }} />
-            </View>
-
-            <View style={styles.mealTimingsContainer}>
-              <Text style={styles.mealTimingsTitle}>בחר זמן ארוחה:</Text>
-              {["BREAKFAST", "LUNCH", "DINNER", "SNACK"].map((timing) => (
-                <TouchableOpacity
-                  key={timing}
-                  style={styles.mealTimingButton}
-                  onPress={() => addToMealLog(timing)}
-                >
-                  <Text style={styles.mealTimingText}>
-                    {timing === "BREAKFAST"
-                      ? "ארוחת בוקר"
-                      : timing === "LUNCH"
-                      ? "ארוחת צהריים"
-                      : timing === "DINNER"
-                      ? "ארוחת ערב"
-                      : "חטיף"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </SafeAreaView>
-        </Modal>
+          <View style={styles.tipsList}>
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              • Ensure good lighting for better scan accuracy
+            </Text>
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              • Hold camera steady and focus on the barcode/label
+            </Text>
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              • Clean the camera lens for clearer images
+            </Text>
+          </View>
+        </Animated.View>
       </ScrollView>
+
+      {/* Modals */}
+      {renderAddToMealModal()}
+      {renderIngredientsModal()}
+      {renderHistoryModal()}
     </SafeAreaView>
   );
 }
@@ -1439,315 +1121,221 @@ export default function FoodScannerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8F9FA",
   },
   header: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  headerContent: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+  },
+  titleContainer: {
+    flex: 1,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#2C3E50",
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#7F8C8D",
-    marginTop: 4,
+    fontSize: 14,
+    opacity: 0.8,
   },
   historyButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(22, 160, 133, 0.1)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
   },
-  scanOptions: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 20,
-    overflow: "hidden",
+  content: {
+    flex: 1,
   },
-  scanOptionsGradient: {
-    padding: 24,
+  contentContainer: {
+    padding: 20,
+    paddingBottom: 40,
   },
   modeSelector: {
     flexDirection: "row",
-    backgroundColor: "#f8f9fa",
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 4,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   modeButton: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
-  },
-  activeModeButton: {
-    backgroundColor: "#16A085",
-  },
-  modeButtonText: {
-    color: "#666",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  activeModeButtonText: {
-    color: "#fff",
-  },
-  scanButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 20,
-  },
-  scanButtonGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    gap: 12,
-  },
-  scanButtonText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  manualEntry: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-  },
-  inputContainer: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  barcodeInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#2C3E50",
-  },
-  scanButtonSmall: {
-    backgroundColor: "#16A085",
     borderRadius: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    gap: 8,
   },
-  scanButtonSmallText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  cameraContainer: {
-    flex: 1,
-    height: 400,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-  camera: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  scanFrame: {
-    width: 250,
-    height: 150,
-    borderWidth: 2,
-    borderColor: "#fff",
-    borderRadius: 8,
-  },
-  scanInstructions: {
-    color: "#fff",
-    fontSize: 16,
-    marginTop: 20,
-    textAlign: "center",
-  },
-  cancelButton: {
-    position: "absolute",
-    bottom: 20,
-    alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  cancelButtonText: {
-    color: "#fff",
-    fontSize: 16,
-  },
-  resultContainer: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-  resultBlur: {
-    borderRadius: 20,
-  },
-  resultGradient: {
-    padding: 24,
-  },
-  productHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 20,
-  },
-  productInfo: {
-    backgroundColor: "#fff",
-    marginHorizontal: 20,
-    marginTop: -20,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    zIndex: 1,
-  },
-  productCard: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 4,
+  modeButtonActive: {
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  productMainInfo: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
-  productNutritionSummary: {
-    gap: 16,
-  },
-  calorieCard: {
-    backgroundColor: "#FFF3CD",
+  instructionsCard: {
     borderRadius: 16,
-    padding: 16,
+    marginBottom: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+  },
+  instructionsGradient: {
+    padding: 20,
+  },
+  instructionsHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    borderLeftWidth: 4,
-    borderLeftColor: "#F39C12",
+    marginBottom: 12,
+    gap: 12,
   },
-  calorieValue: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#D97706",
-  },
-  calorieLabel: {
+  instructionsTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#92400E",
-    marginTop: 4,
   },
-  caloriePer: {
-    fontSize: 12,
-    color: "#92400E",
-    opacity: 0.8,
-  },
-  macroGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  macroItem: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-  },
-  macroValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  macroLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 4,
-  },
-  healthScoreCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-    padding: 12,
-  },
-  healthScoreBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  healthScoreValue: {
-    color: "#fff",
-    fontWeight: "bold",
+  instructionsText: {
     fontSize: 14,
+    lineHeight: 20,
   },
-  productStats: {
+  scanActions: {
+    marginBottom: 24,
+  },
+  scanButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  scanButtonText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  imageActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  imageButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  imageButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  productCard: {
+    borderRadius: 20,
+    marginBottom: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  productHeader: {
+    padding: 20,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 15,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
   },
-  calorieHighlight: {
-    backgroundColor: "#FEF3C7",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
+  productInfo: {
     flex: 1,
-    marginRight: 10,
   },
-  calorieHighlightValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#D97706",
+  productName: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
   },
-  calorieHighlightLabel: {
+  productBrand: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  categoryBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(16, 185, 129, 0.1)",
+  },
+  categoryText: {
     fontSize: 12,
-    color: "#92400E",
-    marginTop: 2,
+    fontWeight: "600",
   },
-  productBarcode: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 4,
-    fontFamily: "monospace",
+  scoreContainer: {
+    alignItems: "center",
   },
-  compatibilityContainer: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 20,
+  healthScore: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
   },
-  compatibilityGradient: {
+  scoreText: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  scoreLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+  },
+  nutritionGrid: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    gap: 12,
+  },
+  nutritionItem: {
+    flex: 1,
     padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  nutritionValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  nutritionLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    textTransform: "uppercase",
+  },
+  analysisSection: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(0, 0, 0, 0.05)",
   },
   compatibilityHeader: {
     flexDirection: "row",
@@ -1755,499 +1343,323 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 8,
   },
-  compatibilityTitle: {
+  analysisTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#2C3E50",
-  },
-  scoreContainer: {
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  scoreValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  scoreLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginTop: 4,
-  },
-  scoreProgressBg: {
-    height: 6,
-    backgroundColor: "rgba(0, 0, 0, 0.1)",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  scoreProgress: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  nutritionSection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#2C3E50",
-    marginBottom: 12,
-  },
-  nutritionGrid: {
-    gap: 12,
-  },
-  nutritionCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
-    borderRadius: 12,
-    padding: 16,
-    borderLeftWidth: 4,
-  },
-  nutritionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  nutritionIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  nutritionLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#2C3E50",
-  },
-  nutritionValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  contributionSection: {
-    marginBottom: 20,
-  },
-  contributionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  contributionItem: {
     flex: 1,
-    minWidth: "45%",
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
+  },
+  compatibilityBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
+    borderWidth: 1,
   },
-  contributionLabel: {
+  compatibilityScore: {
     fontSize: 12,
-    color: "#7F8C8D",
-    marginBottom: 4,
+    fontWeight: "700",
   },
-  contributionValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#16A085",
+  healthAssessment: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
   },
-  alertsSection: {
-    marginBottom: 20,
+  alertsContainer: {
+    marginBottom: 16,
   },
   alertItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(231, 76, 60, 0.1)",
-    borderRadius: 12,
-    padding: 12,
     marginBottom: 8,
     gap: 8,
   },
   alertText: {
+    fontSize: 13,
     flex: 1,
-    fontSize: 14,
-    color: "#E74C3C",
   },
-  recommendationsSection: {
-    marginBottom: 20,
+  recommendationsContainer: {
+    marginBottom: 16,
   },
   recommendationItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(22, 160, 133, 0.1)",
-    borderRadius: 12,
-    padding: 12,
     marginBottom: 8,
     gap: 8,
   },
   recommendationText: {
+    fontSize: 13,
     flex: 1,
-    fontSize: 14,
-    color: "#16A085",
   },
-  assessmentSection: {
-    marginBottom: 20,
-  },
-  assessmentContainer: {
+  actionButtons: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
-    borderRadius: 12,
-    padding: 16,
+    padding: 20,
     gap: 12,
   },
-  assessmentText: {
+  secondaryButton: {
     flex: 1,
-    fontSize: 14,
-    color: "#2C3E50",
-    lineHeight: 20,
-  },
-  addToMealButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  addToMealGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 2,
     gap: 8,
   },
-  addToMealText: {
-    fontSize: 16,
+  secondaryButtonText: {
+    fontSize: 14,
     fontWeight: "600",
-    color: "#FFFFFF",
+  },
+  primaryButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  primaryButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  tipsCard: {
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+  },
+  tipsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 8,
+  },
+  tipsTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tipsList: {
+    gap: 8,
+  },
+  tipItem: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
   },
   modalContainer: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
+    height: "85%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#E9ECEF",
+    borderBottomColor: "rgba(0, 0, 0, 0.05)",
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#2C3E50",
+    fontWeight: "700",
+  },
+  closeButton: {
+    padding: 4,
   },
   modalContent: {
     flex: 1,
     padding: 20,
   },
-  quantitySection: {
-    marginBottom: 30,
+  inputGroup: {
+    marginBottom: 20,
   },
-  quantityLabel: {
-    fontSize: 16,
+  inputLabel: {
+    fontSize: 14,
     fontWeight: "600",
-    color: "#2C3E50",
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  quantityControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-  },
-  quantityButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(22, 160, 133, 0.1)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  quantityInput: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#2C3E50",
-    textAlign: "center",
-    backgroundColor: "#FFFFFF",
+  input: {
+    borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    minWidth: 80,
+    padding: 16,
+    fontSize: 16,
   },
-  confirmButton: {
-    borderRadius: 16,
-    overflow: "hidden",
+  mealTimingOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  confirmGradient: {
+  timingOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  timingOptionText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  addButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 16,
-    gap: 8,
-  },
-  confirmText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  historyContent: {
-    flex: 1,
-    padding: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 60,
-  },
-  historyItem: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    gap: 8,
+    marginTop: 20,
   },
-  historyItemContent: {
-    gap: 4,
+  addButtonDisabled: {
+    opacity: 0.6,
   },
-  historyItemName: {
+  addButtonText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#2C3E50",
+    fontWeight: "700",
+    color: "#ffffff",
   },
-  historyItemBrand: {
-    fontSize: 14,
-    color: "#7F8C8D",
+  addIngredientSection: {
+    marginBottom: 24,
   },
-  historyItemDate: {
-    fontSize: 12,
-    color: "#95A5A6",
-  },
-  emptyHistory: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 60,
-  },
-  emptyHistoryText: {
-    marginTop: 16,
+  sectionTitle: {
     fontSize: 16,
-    color: "#7F8C8D",
-    textAlign: "center",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#64748b",
-  },
-  noPermissionContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  noPermissionText: {
-    fontSize: 16,
-    textAlign: "center",
-    marginVertical: 20,
-    color: "#666",
-  },
-  permissionButton: {
-    backgroundColor: "#16A085",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  permissionButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  resultsContainer: {
-    flex: 1,
-  },
-  quantitySelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    backgroundColor: "#f8f9fa",
-  },
-  nutritionContainer: {
-    padding: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
+    fontWeight: "700",
     marginBottom: 16,
   },
-  nutritionDisplayGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  ingredientForm: {
     gap: 12,
   },
-  nutritionDisplayItem: {
-    width: "48%",
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-  },
-  nutritionDisplayValue: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#2C3E50",
-  },
-  nutritionDisplayLabel: {
-    fontSize: 14,
-    color: "#7F8C8D",
-    marginTop: 4,
-  },
-  nutritionItem: {
-    width: "48%",
-    backgroundColor: "#f8f9fa",
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    alignItems: "center",
-  },
-  analysisContainer: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-  },
-  scoreCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  scoreText: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  healthAssessment: {
-    fontSize: 16,
-    textAlign: "center",
-    color: "#333",
-  },
-  alertsContainer: {
-    backgroundColor: "#fff3cd",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  alertsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#856404",
-    marginBottom: 8,
-    textAlign: "right",
-  },
-  recommendationsContainer: {
-    backgroundColor: "#d1ecf1",
-    padding: 12,
-    borderRadius: 8,
-  },
-  recommendationsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0c5460",
-    marginBottom: 8,
-    textAlign: "right",
-  },
-  componentsContainer: {
-    marginVertical: 16,
-    paddingHorizontal: 12,
-  },
-  componentsGrid: {
+  quantityRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-start",
+    gap: 12,
   },
-  componentItem: {
-    backgroundColor: "#eee",
-    borderRadius: 8,
-    padding: 8,
-    margin: 4,
-  },
-  componentName: {
-    fontSize: 14,
-  },
-  ratingContainer: {
-    padding: 16,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 12,
-    marginVertical: 16,
-    alignItems: "center",
-  },
-  ratingDescription: {
-    fontSize: 14,
-    color: "#666",
-    marginVertical: 8,
-    textAlign: "center",
-  },
-  starsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginVertical: 12,
-  },
-  starButton: {
-    marginHorizontal: 6,
-  },
-  submitRatingButton: {
-    backgroundColor: "#16A085",
-    paddingVertical: 10,
-    paddingHorizontal: 30,
-    borderRadius: 25,
-    marginTop: 8,
-  },
-  submitRatingText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
-  allergensContainer: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-    backgroundColor: "#f8d7da",
-  },
-  allergensText: {
-    fontSize: 14,
-    color: "#721c24",
-    lineHeight: 20,
-    textAlign: "right",
-  },
-  addMealContainer: {
+  quantityInput: {
     flex: 1,
-    backgroundColor: "#fff",
-  },
-  cancelText: {
-    color: "#16A085",
-    fontSize: 16,
-  },
-  mealTimingsContainer: {
-    padding: 16,
-  },
-  mealTimingsTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
-    textAlign: "right",
-  },
-  mealTimingButton: {
-    backgroundColor: "#f8f9fa",
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  mealTimingText: {
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
-    textAlign: "right",
-    color: "#333",
+  },
+  unitSelector: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  unitOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 44,
+    alignItems: "center",
+  },
+  unitText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  addIngredientButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  addIngredientButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  ingredientsListSection: {
+    marginBottom: 24,
+  },
+  ingredientItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  ingredientInfo: {
+    flex: 1,
+  },
+  ingredientName: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  ingredientDetails: {
+    fontSize: 12,
+  },
+  removeButton: {
+    padding: 8,
+  },
+  saveIngredientsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  saveIngredientsButtonText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  emptyHistory: {
+    alignItems: "center",
+    paddingVertical: 40,
+    gap: 12,
+  },
+  emptyHistoryText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  emptyHistorySubtext: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  historyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  historyItemInfo: {
+    flex: 1,
+  },
+  historyItemName: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  historyItemBrand: {
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  historyItemDate: {
+    fontSize: 11,
+  },
+  historyItemType: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(16, 185, 129, 0.1)",
+  },
+  historyTypeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
   },
 });
